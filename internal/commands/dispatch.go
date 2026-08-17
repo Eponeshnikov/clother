@@ -14,6 +14,8 @@ func Dispatch(ctx context.Context, c Context, command string, args []string) (in
 		return 0, nil
 	case "config":
 		return runConfig(ctx, c, args)
+	case "remove":
+		return runRemove(ctx, c, args)
 	case "list":
 		return runList(ctx, c)
 	case "info":
