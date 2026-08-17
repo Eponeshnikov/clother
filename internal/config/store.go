@@ -23,12 +23,16 @@ type ProviderOverride struct {
 	ProxyURL          string            `json:"proxy_url,omitempty"`
 	NoProxy           string            `json:"no_proxy,omitempty"`
 	SubagentModel     string            `json:"subagent_model,omitempty"`
+	GatewayDiscovery  *bool             `json:"gateway_model_discovery,omitempty"`
+	EffortLevel       string            `json:"effort_level,omitempty"`
+	ModelCapabilities []string          `json:"model_capabilities,omitempty"`
 }
 
 func (o ProviderOverride) Empty() bool {
 	return o.Model == "" && o.BaseURL == "" && o.DefaultModel == "" && len(o.ModelTiers) == 0 &&
 		o.MaxContextTokens == 0 && o.AutoCompactWindow == 0 && o.ProxyURL == "" &&
-		o.NoProxy == "" && o.SubagentModel == ""
+		o.NoProxy == "" && o.SubagentModel == "" && o.GatewayDiscovery == nil &&
+		o.EffortLevel == "" && len(o.ModelCapabilities) == 0
 }
 
 type CustomProvider struct {
@@ -43,6 +47,9 @@ type CustomProvider struct {
 	ProxyURL          string            `json:"proxy_url,omitempty"`
 	NoProxy           string            `json:"no_proxy,omitempty"`
 	SubagentModel     string            `json:"subagent_model,omitempty"`
+	GatewayDiscovery  *bool             `json:"gateway_model_discovery,omitempty"`
+	EffortLevel       string            `json:"effort_level,omitempty"`
+	ModelCapabilities []string          `json:"model_capabilities,omitempty"`
 }
 
 type File struct {
@@ -149,6 +156,8 @@ func (cfg *File) Normalize(catalog providers.Catalog) {
 		override.ProxyURL = strings.TrimRight(strings.TrimSpace(override.ProxyURL), "/")
 		override.NoProxy = strings.TrimSpace(override.NoProxy)
 		override.SubagentModel = strings.TrimSpace(override.SubagentModel)
+		override.EffortLevel = normalizeEffortLevel(override.EffortLevel)
+		override.ModelCapabilities = normalizeCapabilities(override.ModelCapabilities)
 		provider, ok := catalog.Get(id)
 		if ok {
 			override.Model = normalizeProviderOverrideModel(provider, override.Model)
@@ -176,6 +185,8 @@ func (cfg *File) Normalize(catalog providers.Catalog) {
 		custom.ProxyURL = strings.TrimRight(strings.TrimSpace(custom.ProxyURL), "/")
 		custom.NoProxy = strings.TrimSpace(custom.NoProxy)
 		custom.SubagentModel = strings.TrimSpace(custom.SubagentModel)
+		custom.EffortLevel = normalizeEffortLevel(custom.EffortLevel)
+		custom.ModelCapabilities = normalizeCapabilities(custom.ModelCapabilities)
 		cfg.CustomProviders[name] = custom
 	}
 
@@ -191,6 +202,41 @@ func (cfg *File) Normalize(catalog providers.Catalog) {
 		}
 	}
 	cfg.OpenRouterAliases = normalizedAliases
+}
+
+func normalizeEffortLevel(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "auto" {
+		return ""
+	}
+	for _, allowed := range []string{"low", "medium", "high", "xhigh", "max"} {
+		if value == allowed {
+			return value
+		}
+	}
+	return ""
+}
+
+func normalizeCapabilities(input []string) []string {
+	allowed := map[string]bool{
+		"effort": true, "xhigh_effort": true, "max_effort": true,
+		"thinking": true, "adaptive_thinking": true, "interleaved_thinking": true,
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, raw := range input {
+		for _, item := range strings.Split(raw, ",") {
+			item = strings.ToLower(strings.TrimSpace(item))
+			if allowed[item] && !seen[item] {
+				seen[item] = true
+				out = append(out, item)
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func normalizeModelTiers(input map[string]string) map[string]string {

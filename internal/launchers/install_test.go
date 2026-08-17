@@ -167,3 +167,47 @@ func TestSyncHomebrewSkipsDynamicProviderSymlinks(t *testing.T) {
 		}
 	}
 }
+
+func TestSyncPreservesExternalClaudeProxyShims(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	execPath := filepath.Join(root, "clother-bin")
+	if err := os.WriteFile(execPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	paths := config.Paths{
+		ConfigDir: filepath.Join(root, "config"), DataDir: filepath.Join(root, "data"),
+		CacheDir: filepath.Join(root, "cache"), BinDir: filepath.Join(root, "bin"),
+		ManifestFile:    filepath.Join(root, "data", "launchers.json"),
+		SessionPatchDir: filepath.Join(root, "data", "session-patches"),
+	}
+	if err := os.MkdirAll(paths.BinDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	proxyWrapper := filepath.Join(paths.BinDir, "claude-real")
+	if err := os.WriteFile(proxyWrapper, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"claude", "clother-native"} {
+		if err := os.Symlink("claude-real", filepath.Join(paths.BinDir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	catalog, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.File{Version: 1, ProviderOverrides: map[string]config.ProviderOverride{}, OpenRouterAliases: map[string]string{}, CustomProviders: map[string]config.CustomProvider{}}
+	if err := Sync(execPath, paths, catalog, cfg, false); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"claude", "clother-native"} {
+		target, err := os.Readlink(filepath.Join(paths.BinDir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if target != "claude-real" {
+			t.Fatalf("%s target = %q, want preserved proxy shim", name, target)
+		}
+	}
+}

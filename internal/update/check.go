@@ -44,7 +44,7 @@ func maybeMessage(paths config.Paths, current string, now time.Time, fetch fetch
 	if os.Getenv("CLOTHER_NO_UPDATE_CHECK") == "1" {
 		return "", nil
 	}
-	if normalizeVersion(current) == "" || strings.EqualFold(strings.TrimSpace(current), "dev") {
+	if normalizeVersion(current) == "" || strings.EqualFold(strings.TrimSpace(current), "dev") || strings.Contains(strings.ToLower(current), "local") {
 		return "", nil
 	}
 

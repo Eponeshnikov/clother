@@ -28,6 +28,9 @@ type Target struct {
 	ProxyURL          string
 	NoProxy           string
 	SubagentModel     string
+	GatewayDiscovery  bool
+	EffortLevel       string
+	ModelCapabilities []string
 }
 
 func Invocation(argv0 string) (string, bool) {
@@ -85,6 +88,9 @@ func Resolve(profile string, catalog providers.Catalog, cfg *config.File) (Targe
 			ProxyURL:          override.ProxyURL,
 			NoProxy:           override.NoProxy,
 			SubagentModel:     override.SubagentModel,
+			GatewayDiscovery:  boolValue(override.GatewayDiscovery),
+			EffortLevel:       override.EffortLevel,
+			ModelCapabilities: copySlice(override.ModelCapabilities),
 		}, nil
 	}
 	if strings.HasPrefix(profile, "or-") {
@@ -122,7 +128,7 @@ func Resolve(profile string, catalog providers.Catalog, cfg *config.File) (Targe
 			BaseURL:           custom.BaseURL,
 			Model:             custom.DefaultModel,
 			ModelTiers:        compactModelTiers(modelTiers),
-			AuthMode:          providers.AuthSecret,
+			AuthMode:          providers.AuthOptionalSecret,
 			SecretKey:         custom.APIKeyEnv,
 			TestURL:           custom.BaseURL,
 			MaxContextTokens:  custom.MaxContextTokens,
@@ -130,9 +136,20 @@ func Resolve(profile string, catalog providers.Catalog, cfg *config.File) (Targe
 			ProxyURL:          custom.ProxyURL,
 			NoProxy:           custom.NoProxy,
 			SubagentModel:     custom.SubagentModel,
+			GatewayDiscovery:  boolValue(custom.GatewayDiscovery),
+			EffortLevel:       custom.EffortLevel,
+			ModelCapabilities: copySlice(custom.ModelCapabilities),
 		}, nil
 	}
 	return Target{}, fmt.Errorf("unknown profile %q", profile)
+}
+
+func boolValue(value *bool) bool {
+	return value != nil && *value
+}
+
+func copySlice(input []string) []string {
+	return append([]string(nil), input...)
 }
 
 func All(catalog providers.Catalog, cfg *config.File) []Target {

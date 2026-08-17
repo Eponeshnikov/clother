@@ -102,6 +102,24 @@ func BuildEnv(target profiles.Target, secrets config.Secrets) ([]string, error) 
 	if target.SubagentModel != "" {
 		envMap["CLAUDE_CODE_SUBAGENT_MODEL"] = target.SubagentModel
 	}
+	if target.GatewayDiscovery {
+		envMap["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"] = "1"
+	}
+	if target.EffortLevel != "" {
+		envMap["CLAUDE_CODE_EFFORT_LEVEL"] = target.EffortLevel
+	}
+	if len(target.ModelCapabilities) > 0 {
+		capabilities := strings.Join(target.ModelCapabilities, ",")
+		if target.Model != "" && (target.Family == providers.FamilyLocal || target.Family == providers.FamilyCustomUnknown) {
+			envMap["ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES"] = capabilities
+		}
+		for tier := range target.ModelTiers {
+			switch tier {
+			case "fable", "opus", "sonnet", "haiku":
+				envMap["ANTHROPIC_DEFAULT_"+strings.ToUpper(tier)+"_MODEL_SUPPORTED_CAPABILITIES"] = capabilities
+			}
+		}
+	}
 	if target.ProxyURL != "" {
 		for _, key := range []string{"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"} {
 			envMap[key] = target.ProxyURL

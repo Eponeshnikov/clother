@@ -75,6 +75,22 @@ func TestMaybeMessageSkipsDevVersion(t *testing.T) {
 	}
 }
 
+func TestMaybeMessageSkipsLocalVersion(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	paths := config.Paths{CacheDir: root, UpdateCacheFile: filepath.Join(root, "update.json")}
+	msg, err := maybeMessage(paths, "3.0.10-local.2", time.Now(), func(_ context.Context, _ string) (remoteMetadata, error) {
+		t.Fatal("local builds should not fetch official updates")
+		return remoteMetadata{}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg != "" {
+		t.Fatalf("expected no message for local builds, got %q", msg)
+	}
+}
+
 func TestMaybeMessageCachesFailedRefresh(t *testing.T) {
 	t.Parallel()
 

@@ -288,7 +288,17 @@ The same configuration flow accepts:
 - a maximum context window, exported as `CLAUDE_CODE_MAX_CONTEXT_TOKENS`;
 - an optional earlier auto-compact threshold;
 - a per-provider HTTP(S) proxy and `NO_PROXY` list;
-- a subagent model (`inherit` is useful when only one model fits on the GPU).
+- a subagent model (`inherit` is useful when only one model fits on the GPU);
+- optional gateway model discovery from `/v1/models`;
+- a Claude Code reasoning effort and explicit model capability declarations.
+
+Claude Code supports only one `ANTHROPIC_CUSTOM_MODEL_OPTION`. Gateway
+discovery can add more rows, but Claude Code keeps only discovered IDs that
+contain `claude` or `anthropic`; arbitrary Qwen model IDs returned directly by
+LM Studio or Ollama are ignored. Enable discovery only for a compatible
+gateway. Multiple arbitrary models require the four family mappings plus the
+single custom option, separate profiles, or a routing gateway that publishes
+Claude-shaped aliases and rewrites them to the upstream model IDs.
 
 For example, this profile keeps a Qwen deployment inside a 110K-token VRAM
 budget and routes the remote endpoint through a local proxy:
@@ -308,7 +318,9 @@ budget and routes the remote endpoint through a local proxy:
       "auto_compact_window": 100000,
       "proxy_url": "http://127.0.0.1:2080",
       "no_proxy": "localhost,127.0.0.1,.local",
-      "subagent_model": "inherit"
+      "subagent_model": "inherit",
+      "effort_level": "high",
+      "model_capabilities": ["effort", "thinking"]
     }
   }
 }
@@ -317,6 +329,18 @@ budget and routes the remote endpoint through a local proxy:
 Use `clother info lmstudio` to inspect the resolved models and runtime limits.
 Existing configurations and one-time full model IDs remain compatible. Enter
 `-` at an optional prompt to clear its saved value.
+
+Pressing Enter through a new local-provider configuration uses conservative
+defaults: the provider's standard localhost URL, no authentication, automatic
+context/compaction, inherited proxy behavior, automatic effort, and disabled
+gateway discovery. On an existing profile, Enter keeps its saved values.
+Context and effort are intentionally not guessed from a model name.
+
+Reasoning effort is exported through `CLAUDE_CODE_EFFORT_LEVEL`. If a level is
+selected, Clother also declares the matching Claude Code effort capabilities
+for configured model entries. This enables Claude Code's control, but the
+backend and model must actually implement the corresponding request parameter;
+Clother cannot add reasoning-effort support to a model server that ignores it.
 
 ### Custom
 
@@ -332,6 +356,21 @@ As with OpenRouter aliases, the per-provider `clother-<name>` symlink is only
 created on curl installs — under Homebrew, use `clother-custom <name>`.
 Custom providers support the same default/tier model mappings, context limits,
 proxy, and subagent settings as local providers.
+
+API keys on Custom providers are optional, so they can also represent named
+local or remote instances:
+
+```bash
+clother config custom   # name: lmstudio-local, URL: http://localhost:1234
+clother config custom   # name: lmstudio-remote, URL: https://lm.example.com
+clother-lmstudio-local
+clother-lmstudio-remote
+```
+
+The same pattern works for Ollama, llama.cpp, and any Anthropic-compatible
+endpoint. A single Claude Code process still has one `ANTHROPIC_BASE_URL`, so
+models on different URLs require separate profiles or a routing gateway that
+dispatches requests by model ID.
 
 ### Alibaba Coding Plan Models
 

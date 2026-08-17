@@ -148,7 +148,7 @@ func TestConfigBuiltinLocalProviderStoresRemoteBaseURL(t *testing.T) {
 		Catalog: catalog,
 		Output:  &ui.Output{Stdout: io.Discard, Stderr: io.Discard, Format: ui.FormatHuman},
 		Prompt: ui.NewPrompter(strings.NewReader(
-			"\nhttp://192.168.123.123:1234\n"+strings.Repeat("\n", 9),
+			"\nhttp://192.168.123.123:1234\n"+strings.Repeat("\n", 12),
 		), io.Discard),
 	}
 
@@ -164,7 +164,7 @@ func TestConfigBuiltinLocalProviderStoresRemoteBaseURL(t *testing.T) {
 	}
 
 	// Re-running config and accepting the default keeps the override.
-	ctx.Prompt = ui.NewPrompter(strings.NewReader(strings.Repeat("\n", 11)), io.Discard)
+	ctx.Prompt = ui.NewPrompter(strings.NewReader(strings.Repeat("\n", 14)), io.Discard)
 	if _, err := configBuiltin(ctx, provider); err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestConfigBuiltinLocalProviderStoresRemoteBaseURL(t *testing.T) {
 
 	// Entering the catalog default clears the override.
 	ctx.Prompt = ui.NewPrompter(strings.NewReader(
-		"\nhttp://localhost:1234\n"+strings.Repeat("\n", 9),
+		"\nhttp://localhost:1234\n"+strings.Repeat("\n", 12),
 	), io.Discard)
 	if _, err := configBuiltin(ctx, provider); err != nil {
 		t.Fatal(err)

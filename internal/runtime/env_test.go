@@ -152,6 +152,9 @@ func TestBuildEnvForAuthenticatedProxiedLocalModel(t *testing.T) {
 		AutoCompactWindow: 100_000,
 		ProxyURL:          "http://127.0.0.1:2080",
 		SubagentModel:     "inherit",
+		GatewayDiscovery:  true,
+		EffortLevel:       "high",
+		ModelCapabilities: []string{"effort", "thinking"},
 	}
 
 	env, err := BuildEnv(target, config.Secrets{"LMSTUDIO_API_KEY": "lms-secret"})
@@ -160,16 +163,21 @@ func TestBuildEnvForAuthenticatedProxiedLocalModel(t *testing.T) {
 	}
 	got := envToMap(env)
 	want := map[string]string{
-		"ANTHROPIC_AUTH_TOKEN":            "lms-secret",
-		"ANTHROPIC_MODEL":                 "qwen3.8-27b-mtp",
-		"ANTHROPIC_CUSTOM_MODEL_OPTION":   "qwen3.8-27b-mtp",
-		"ANTHROPIC_DEFAULT_OPUS_MODEL":    "qwen3.8-27b-mtp",
-		"ANTHROPIC_DEFAULT_SONNET_MODEL":  "qwopus3.6-27b-v2-mtp",
-		"CLAUDE_CODE_MAX_CONTEXT_TOKENS":  "110000",
-		"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "100000",
-		"CLAUDE_CODE_SUBAGENT_MODEL":      "inherit",
-		"HTTP_PROXY":                      "http://127.0.0.1:2080",
-		"HTTPS_PROXY":                     "http://127.0.0.1:2080",
+		"ANTHROPIC_AUTH_TOKEN":                                  "lms-secret",
+		"ANTHROPIC_MODEL":                                       "qwen3.8-27b-mtp",
+		"ANTHROPIC_CUSTOM_MODEL_OPTION":                         "qwen3.8-27b-mtp",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL":                          "qwen3.8-27b-mtp",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL":                        "qwopus3.6-27b-v2-mtp",
+		"CLAUDE_CODE_MAX_CONTEXT_TOKENS":                        "110000",
+		"CLAUDE_CODE_AUTO_COMPACT_WINDOW":                       "100000",
+		"CLAUDE_CODE_SUBAGENT_MODEL":                            "inherit",
+		"HTTP_PROXY":                                            "http://127.0.0.1:2080",
+		"HTTPS_PROXY":                                           "http://127.0.0.1:2080",
+		"CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY":            "1",
+		"CLAUDE_CODE_EFFORT_LEVEL":                              "high",
+		"ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES":  "effort,thinking",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES":   "effort,thinking",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES": "effort,thinking",
 	}
 	for key, value := range want {
 		if got[key] != value {

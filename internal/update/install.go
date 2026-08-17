@@ -18,7 +18,7 @@ import (
 const defaultReleaseBaseURL = "https://github.com/jolehuit/clother/releases/download"
 
 func DownloadLatestIfNewer(ctx context.Context, current string) (string, string, func(), error) {
-	if os.Getenv("CLOTHER_SKIP_SELF_UPDATE") == "1" {
+	if os.Getenv("CLOTHER_SKIP_SELF_UPDATE") == "1" || strings.Contains(strings.ToLower(current), "local") {
 		return "", "", nil, nil
 	}
 

@@ -73,3 +73,39 @@ func TestResolveCombinesModelAndBaseURLOverrides(t *testing.T) {
 		t.Fatalf("BaseURL = %q, want the override", target.BaseURL)
 	}
 }
+
+func TestResolveCustomProviderAllowsOptionalAuthenticationAndRuntimeOptions(t *testing.T) {
+	t.Parallel()
+	catalog, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	discovery := true
+	cfg := &config.File{
+		Version:           1,
+		ProviderOverrides: map[string]config.ProviderOverride{},
+		OpenRouterAliases: map[string]string{},
+		CustomProviders: map[string]config.CustomProvider{
+			"local-lab": {
+				Name:              "local-lab",
+				DisplayName:       "Local Lab",
+				BaseURL:           "http://localhost:1234",
+				APIKeyEnv:         "LOCAL_LAB_API_KEY",
+				DefaultModel:      "qwen-local",
+				GatewayDiscovery:  &discovery,
+				EffortLevel:       "medium",
+				ModelCapabilities: []string{"effort"},
+			},
+		},
+	}
+	target, err := Resolve("local-lab", catalog, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.AuthMode != providers.AuthOptionalSecret {
+		t.Fatalf("AuthMode = %q, want optional secret", target.AuthMode)
+	}
+	if !target.GatewayDiscovery || target.EffortLevel != "medium" {
+		t.Fatalf("runtime options not resolved: %+v", target)
+	}
+}

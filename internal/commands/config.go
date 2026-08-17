@@ -158,7 +158,8 @@ func configBuiltin(c Context, provider providers.Provider) (int, error) {
 
 		if err := promptProviderRuntimeOptions(c, &override.DefaultModel, &override.ModelTiers,
 			&override.MaxContextTokens, &override.AutoCompactWindow, &override.ProxyURL,
-			&override.NoProxy, &override.SubagentModel); err != nil {
+			&override.NoProxy, &override.SubagentModel, &override.GatewayDiscovery,
+			&override.EffortLevel, &override.ModelCapabilities); err != nil {
 			return 1, err
 		}
 	}
@@ -238,23 +239,31 @@ func configCustom(c Context) (int, error) {
 	proxyURL := existing.ProxyURL
 	noProxy := existing.NoProxy
 	subagentModel := existing.SubagentModel
+	gatewayDiscovery := existing.GatewayDiscovery
+	effortLevel := existing.EffortLevel
+	modelCapabilities := existing.ModelCapabilities
 	if err := promptProviderRuntimeOptions(c, &defaultModel, &modelTiers, &maxContextTokens,
-		&autoCompactWindow, &proxyURL, &noProxy, &subagentModel); err != nil {
+		&autoCompactWindow, &proxyURL, &noProxy, &subagentModel, &gatewayDiscovery,
+		&effortLevel, &modelCapabilities); err != nil {
 		return 1, err
 	}
 
 	keyVar := strings.ToUpper(strings.ReplaceAll(name, "-", "_")) + "_API_KEY"
 	current := c.Secrets[keyVar]
-	keyLabel := "API key"
+	keyLabel := "API key (optional)"
 	if current != "" {
 		fmt.Fprintf(c.Output.Stdout, "Current key: %s\n", config.MaskSecret(current))
-		keyLabel = "API key (empty to keep current)"
+		keyLabel = "API key (empty to keep, '-' to remove)"
 	}
 	apiKey, err := c.Prompt.PromptSecret(keyLabel)
 	if err != nil {
 		return 1, err
 	}
-	if strings.TrimSpace(apiKey) != "" {
+	switch strings.TrimSpace(apiKey) {
+	case "":
+	case "-":
+		delete(c.Secrets, keyVar)
+	default:
 		c.Secrets[keyVar] = apiKey
 	}
 
@@ -270,12 +279,16 @@ func configCustom(c Context) (int, error) {
 		ProxyURL:          proxyURL,
 		NoProxy:           noProxy,
 		SubagentModel:     subagentModel,
+		GatewayDiscovery:  gatewayDiscovery,
+		EffortLevel:       effortLevel,
+		ModelCapabilities: modelCapabilities,
 	}
 	return persistConfig(c)
 }
 
 func promptProviderRuntimeOptions(c Context, defaultModel *string, modelTiers *map[string]string,
-	maxContextTokens, autoCompactWindow *int, proxyURL, noProxy, subagentModel *string) error {
+	maxContextTokens, autoCompactWindow *int, proxyURL, noProxy, subagentModel *string,
+	gatewayDiscovery **bool, effortLevel *string, modelCapabilities *[]string) error {
 	value, err := promptOptional(c, "Default model (shown as a custom /model option)", *defaultModel)
 	if err != nil {
 		return err
@@ -325,7 +338,82 @@ func promptProviderRuntimeOptions(c Context, defaultModel *string, modelTiers *m
 	if *subagentModel, err = promptOptional(c, "Subagent model (optional; use 'inherit' on one GPU)", *subagentModel); err != nil {
 		return err
 	}
+
+	discoveryDefault := false
+	if *gatewayDiscovery != nil {
+		discoveryDefault = **gatewayDiscovery
+	}
+	discovery, err := c.Prompt.Confirm("Discover gateway models from /v1/models (IDs must contain claude/anthropic)", discoveryDefault)
+	if err != nil {
+		return err
+	}
+	if discovery {
+		*gatewayDiscovery = &discovery
+	} else {
+		*gatewayDiscovery = nil
+	}
+
+	effortDefault := firstNonEmpty(*effortLevel, "auto")
+	effort, err := c.Prompt.Prompt("Reasoning effort (auto/low/medium/high/xhigh/max)", effortDefault)
+	if err != nil {
+		return err
+	}
+	effort = strings.ToLower(strings.TrimSpace(effort))
+	if effort == "auto" || effort == "-" {
+		effort = ""
+	}
+	if effort != "" && !contains([]string{"low", "medium", "high", "xhigh", "max"}, effort) {
+		return fmt.Errorf("invalid reasoning effort %q", effort)
+	}
+	*effortLevel = effort
+
+	capabilityDefault := strings.Join(*modelCapabilities, ",")
+	capabilities, err := c.Prompt.Prompt("Model capabilities (optional: effort,xhigh_effort,max_effort,thinking,adaptive_thinking,interleaved_thinking)", capabilityDefault)
+	if err != nil {
+		return err
+	}
+	if capabilities == "-" {
+		capabilities = ""
+	}
+	*modelCapabilities = parseCapabilities(capabilities)
+	if effort != "" {
+		*modelCapabilities = appendUnique(*modelCapabilities, "effort")
+		if effort == "xhigh" || effort == "max" {
+			*modelCapabilities = appendUnique(*modelCapabilities, "xhigh_effort")
+		}
+		if effort == "max" {
+			*modelCapabilities = appendUnique(*modelCapabilities, "max_effort")
+		}
+	}
 	return nil
+}
+
+func parseCapabilities(value string) []string {
+	allowed := []string{"effort", "xhigh_effort", "max_effort", "thinking", "adaptive_thinking", "interleaved_thinking"}
+	var out []string
+	for _, item := range strings.Split(value, ",") {
+		item = strings.ToLower(strings.TrimSpace(item))
+		if contains(allowed, item) {
+			out = appendUnique(out, item)
+		}
+	}
+	return out
+}
+
+func appendUnique(values []string, value string) []string {
+	if contains(values, value) {
+		return values
+	}
+	return append(values, value)
+}
+
+func contains(values []string, value string) bool {
+	for _, candidate := range values {
+		if candidate == value {
+			return true
+		}
+	}
+	return false
 }
 
 func promptOptional(c Context, label, current string) (string, error) {

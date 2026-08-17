@@ -71,17 +71,38 @@ func Sync(execPath string, paths config.Paths, catalog providers.Catalog, cfg *c
 	sort.Strings(launchers)
 	for _, name := range launchers {
 		link := filepath.Join(paths.BinDir, name)
+		if name == "clother-native" && shouldPreserveExternalShim(link, execPath) {
+			continue
+		}
 		_ = os.Remove(link)
 		if err := os.Symlink(symlinkTarget, link); err != nil {
 			return err
 		}
 	}
 	claudeShim := filepath.Join(paths.BinDir, "claude")
-	_ = os.Remove(claudeShim)
-	if err := os.Symlink(symlinkTarget, claudeShim); err != nil {
-		return err
+	if !shouldPreserveExternalShim(claudeShim, execPath) {
+		_ = os.Remove(claudeShim)
+		if err := os.Symlink(symlinkTarget, claudeShim); err != nil {
+			return err
+		}
 	}
 	return SaveManifest(paths.ManifestFile, Manifest{Launchers: launchers})
+}
+
+func shouldPreserveExternalShim(path, execPath string) bool {
+	target, err := os.Readlink(path)
+	if err != nil {
+		return false
+	}
+	if target == "clother" || target == execPath {
+		return false
+	}
+	resolved := target
+	if !filepath.IsAbs(resolved) {
+		resolved = filepath.Join(filepath.Dir(path), resolved)
+	}
+	info, err := os.Stat(resolved)
+	return err == nil && !info.IsDir()
 }
 
 func LoadManifest(path string) (Manifest, error) {

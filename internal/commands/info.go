@@ -48,6 +48,15 @@ func runInfo(_ context.Context, c Context, args []string) (int, error) {
 	if target.SubagentModel != "" {
 		fmt.Fprintf(c.Output.Stdout, "Subagents:   %s\n", target.SubagentModel)
 	}
+	if target.GatewayDiscovery {
+		fmt.Fprintln(c.Output.Stdout, "Discovery:   /v1/models")
+	}
+	if target.EffortLevel != "" {
+		fmt.Fprintf(c.Output.Stdout, "Effort:      %s\n", target.EffortLevel)
+	}
+	if len(target.ModelCapabilities) > 0 {
+		fmt.Fprintf(c.Output.Stdout, "Capabilities: %s\n", strings.Join(target.ModelCapabilities, ","))
+	}
 	if target.SecretKey != "" {
 		status := "configured"
 		if c.Secrets[target.SecretKey] == "" {
