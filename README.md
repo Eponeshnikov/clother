@@ -232,7 +232,7 @@ the `clother-or <alias>` form there.
 | `clother-ve` | Volcengine | ark.cn-beijing.volces.com |
 | `clother-alibaba-cn` | Alibaba China | coding.dashscope.aliyuncs.com |
 
-### Local (No API Key)
+### Local providers
 
 | Command | Provider | Port | Setup |
 |---------|----------|------|-------|
@@ -267,6 +267,57 @@ clother-lmstudio --model <model>
 Works the same for `ollama` and `llamacpp`. Enter the default localhost URL
 again to switch back.
 
+LM Studio authentication is optional. If **Require Authentication** is enabled
+on a remote LM Studio server, enter its API token when prompted. The token is
+stored in Clother's protected `secrets.env`, never in `config.json`.
+
+#### Model picker, context limits, and proxy
+
+`clother config lmstudio`, `clother config ollama`, and
+`clother config llamacpp` can persist a default model and independent Fable,
+Opus, Sonnet, and Haiku mappings. The default model is also exposed as a custom
+entry in Claude Code's `/model` picker. Tier aliases work at launch too:
+
+```bash
+clother-lmstudio --model opus
+clother-lmstudio --model sonnet
+```
+
+The same configuration flow accepts:
+
+- a maximum context window, exported as `CLAUDE_CODE_MAX_CONTEXT_TOKENS`;
+- an optional earlier auto-compact threshold;
+- a per-provider HTTP(S) proxy and `NO_PROXY` list;
+- a subagent model (`inherit` is useful when only one model fits on the GPU).
+
+For example, this profile keeps a Qwen deployment inside a 110K-token VRAM
+budget and routes the remote endpoint through a local proxy:
+
+```json
+{
+  "provider_overrides": {
+    "lmstudio": {
+      "base_url": "https://lmstudio.example.com",
+      "default_model": "qwen3.8-27b-mtp",
+      "model_tiers": {
+        "opus": "qwen3.8-27b-mtp",
+        "sonnet": "qwopus3.6-27b-v2-mtp",
+        "haiku": "qwen3.6-35b-a3b-mtp"
+      },
+      "max_context_tokens": 110000,
+      "auto_compact_window": 100000,
+      "proxy_url": "http://127.0.0.1:2080",
+      "no_proxy": "localhost,127.0.0.1,.local",
+      "subagent_model": "inherit"
+    }
+  }
+}
+```
+
+Use `clother info lmstudio` to inspect the resolved models and runtime limits.
+Existing configurations and one-time full model IDs remain compatible. Enter
+`-` at an optional prompt to clear its saved value.
+
 ### Custom
 
 Any Anthropic-compatible endpoint:
@@ -279,6 +330,8 @@ clother-myprovider                      # Per-provider shortcut (curl installs)
 
 As with OpenRouter aliases, the per-provider `clother-<name>` symlink is only
 created on curl installs — under Homebrew, use `clother-custom <name>`.
+Custom providers support the same default/tier model mappings, context limits,
+proxy, and subagent settings as local providers.
 
 ### Alibaba Coding Plan Models
 

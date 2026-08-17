@@ -90,6 +90,26 @@ func configBuiltin(c Context, provider providers.Provider) (int, error) {
 		if strings.TrimSpace(value) != "" {
 			c.Secrets[provider.KeyVar] = value
 		}
+	} else if provider.AuthMode == providers.AuthOptionalSecret {
+		current := c.Secrets[provider.KeyVar]
+		if current != "" {
+			fmt.Fprintf(c.Output.Stdout, "Current token: %s\n", config.MaskSecret(current))
+		}
+		label := "API token (optional)"
+		if current != "" {
+			label = "API token (empty to keep, '-' to remove)"
+		}
+		value, err := c.Prompt.PromptSecret(label)
+		if err != nil {
+			return 1, err
+		}
+		switch strings.TrimSpace(value) {
+		case "":
+		case "-":
+			delete(c.Secrets, provider.KeyVar)
+		default:
+			c.Secrets[provider.KeyVar] = value
+		}
 	}
 
 	override := c.Config.ProviderOverrides[provider.ID]
@@ -135,9 +155,15 @@ func configBuiltin(c Context, provider providers.Provider) (int, error) {
 		} else {
 			override.BaseURL = ""
 		}
+
+		if err := promptProviderRuntimeOptions(c, &override.DefaultModel, &override.ModelTiers,
+			&override.MaxContextTokens, &override.AutoCompactWindow, &override.ProxyURL,
+			&override.NoProxy, &override.SubagentModel); err != nil {
+			return 1, err
+		}
 	}
 
-	if override == (config.ProviderOverride{}) {
+	if override.Empty() {
 		delete(c.Config.ProviderOverrides, provider.ID)
 	} else {
 		c.Config.ProviderOverrides[provider.ID] = override
@@ -205,17 +231,16 @@ func configCustom(c Context) (int, error) {
 		return 1, fmt.Errorf("base URL is required")
 	}
 
-	modelLabel := "Default model (optional)"
-	if existing.DefaultModel != "" {
-		modelLabel = fmt.Sprintf("Default model (empty to keep %q)", existing.DefaultModel)
-	}
-	defaultModel, err := c.Prompt.Prompt(modelLabel, "")
-	if err != nil {
+	defaultModel := existing.DefaultModel
+	modelTiers := existing.ModelTiers
+	maxContextTokens := existing.MaxContextTokens
+	autoCompactWindow := existing.AutoCompactWindow
+	proxyURL := existing.ProxyURL
+	noProxy := existing.NoProxy
+	subagentModel := existing.SubagentModel
+	if err := promptProviderRuntimeOptions(c, &defaultModel, &modelTiers, &maxContextTokens,
+		&autoCompactWindow, &proxyURL, &noProxy, &subagentModel); err != nil {
 		return 1, err
-	}
-	defaultModel = strings.TrimSpace(defaultModel)
-	if defaultModel == "" {
-		defaultModel = existing.DefaultModel
 	}
 
 	keyVar := strings.ToUpper(strings.ReplaceAll(name, "-", "_")) + "_API_KEY"
@@ -234,13 +259,118 @@ func configCustom(c Context) (int, error) {
 	}
 
 	c.Config.CustomProviders[name] = config.CustomProvider{
-		Name:         name,
-		DisplayName:  name,
-		BaseURL:      baseURL,
-		APIKeyEnv:    keyVar,
-		DefaultModel: defaultModel,
+		Name:              name,
+		DisplayName:       name,
+		BaseURL:           baseURL,
+		APIKeyEnv:         keyVar,
+		DefaultModel:      defaultModel,
+		ModelTiers:        modelTiers,
+		MaxContextTokens:  maxContextTokens,
+		AutoCompactWindow: autoCompactWindow,
+		ProxyURL:          proxyURL,
+		NoProxy:           noProxy,
+		SubagentModel:     subagentModel,
 	}
 	return persistConfig(c)
+}
+
+func promptProviderRuntimeOptions(c Context, defaultModel *string, modelTiers *map[string]string,
+	maxContextTokens, autoCompactWindow *int, proxyURL, noProxy, subagentModel *string) error {
+	value, err := promptOptional(c, "Default model (shown as a custom /model option)", *defaultModel)
+	if err != nil {
+		return err
+	}
+	*defaultModel = value
+
+	if *modelTiers == nil {
+		*modelTiers = map[string]string{}
+	}
+	for _, tier := range []string{"fable", "opus", "sonnet", "haiku"} {
+		label := strings.ToUpper(tier[:1]) + tier[1:] + " model (optional)"
+		value, err := promptOptional(c, label, (*modelTiers)[tier])
+		if err != nil {
+			return err
+		}
+		if value == "" {
+			delete(*modelTiers, tier)
+		} else {
+			(*modelTiers)[tier] = value
+		}
+	}
+
+	if *maxContextTokens, err = promptTokenCount(c, "Maximum context tokens (optional)", *maxContextTokens, 1, 1_000_000); err != nil {
+		return err
+	}
+	if *autoCompactWindow, err = promptTokenCount(c, "Auto-compact window (optional, 100000-1000000)", *autoCompactWindow, 100_000, 1_000_000); err != nil {
+		return err
+	}
+	if *autoCompactWindow > 0 && *maxContextTokens > 0 && *autoCompactWindow > *maxContextTokens {
+		return fmt.Errorf("auto-compact window (%d) cannot exceed maximum context (%d)", *autoCompactWindow, *maxContextTokens)
+	}
+
+	if *proxyURL, err = promptOptional(c, "HTTP(S) proxy URL (optional)", *proxyURL); err != nil {
+		return err
+	}
+	if *proxyURL != "" {
+		if !strings.HasPrefix(*proxyURL, "http://") && !strings.HasPrefix(*proxyURL, "https://") {
+			return fmt.Errorf("invalid proxy URL %q (must start with http:// or https://)", *proxyURL)
+		}
+		if *noProxy, err = promptOptional(c, "NO_PROXY", firstNonEmpty(*noProxy, "localhost,127.0.0.1,.local")); err != nil {
+			return err
+		}
+	} else {
+		*noProxy = ""
+	}
+
+	if *subagentModel, err = promptOptional(c, "Subagent model (optional; use 'inherit' on one GPU)", *subagentModel); err != nil {
+		return err
+	}
+	return nil
+}
+
+func promptOptional(c Context, label, current string) (string, error) {
+	if current != "" {
+		label += " ('-' to clear)"
+	}
+	answer, err := c.Prompt.Prompt(label, current)
+	if err != nil {
+		return "", err
+	}
+	answer = strings.TrimSpace(answer)
+	if answer == "-" {
+		return "", nil
+	}
+	return answer, nil
+}
+
+func promptTokenCount(c Context, label string, current, min, max int) (int, error) {
+	defaultValue := ""
+	if current > 0 {
+		defaultValue = strconv.Itoa(current)
+		label += " ('-' to clear)"
+	}
+	answer, err := c.Prompt.Prompt(label, defaultValue)
+	if err != nil {
+		return 0, err
+	}
+	answer = strings.TrimSpace(answer)
+	if answer == "" || answer == "-" || answer == "0" {
+		return 0, nil
+	}
+	value, err := strconv.Atoi(answer)
+	if err != nil || value < min || value > max {
+		return 0, fmt.Errorf("invalid token count %q (must be %d-%d)", answer, min, max)
+	}
+	return value, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func persistConfig(c Context) (int, error) {

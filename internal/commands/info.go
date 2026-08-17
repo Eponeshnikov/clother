@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/jolehuit/clother/internal/profiles"
 )
@@ -28,6 +29,24 @@ func runInfo(_ context.Context, c Context, args []string) (int, error) {
 	fmt.Fprintf(c.Output.Stdout, "Base URL:    %s\n", target.BaseURL)
 	if target.Model != "" {
 		fmt.Fprintf(c.Output.Stdout, "Model:       %s\n", target.Model)
+	}
+	for _, tier := range []string{"fable", "opus", "sonnet", "haiku"} {
+		if model := target.ModelTiers[tier]; model != "" {
+			label := strings.ToUpper(tier[:1]) + tier[1:] + ":"
+			fmt.Fprintf(c.Output.Stdout, "%-12s %s\n", label, model)
+		}
+	}
+	if target.MaxContextTokens > 0 {
+		fmt.Fprintf(c.Output.Stdout, "Context:     %d tokens\n", target.MaxContextTokens)
+	}
+	if target.AutoCompactWindow > 0 {
+		fmt.Fprintf(c.Output.Stdout, "Auto-compact: %d tokens\n", target.AutoCompactWindow)
+	}
+	if target.ProxyURL != "" {
+		fmt.Fprintf(c.Output.Stdout, "Proxy:       %s\n", target.ProxyURL)
+	}
+	if target.SubagentModel != "" {
+		fmt.Fprintf(c.Output.Stdout, "Subagents:   %s\n", target.SubagentModel)
 	}
 	if target.SecretKey != "" {
 		status := "configured"

@@ -111,6 +111,31 @@ func TestPrepareClaudeConfigOverlaySkipsNativeClaude(t *testing.T) {
 	}
 }
 
+func TestPrepareClaudeConfigOverlayResolvesConfiguredTierAlias(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	target := profiles.Target{
+		Family: providers.FamilyLocal,
+		Model:  "qwen3.8-27b-mtp",
+		ModelTiers: map[string]string{
+			"sonnet": "qwopus3.6-27b-v2-mtp",
+		},
+	}
+	env, cleanup, err := PrepareClaudeConfigOverlay(target, []string{"--model", "sonnet"}, []string{
+		"ANTHROPIC_MODEL=qwen3.8-27b-mtp",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL=qwopus3.6-27b-v2-mtp",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	got := envSliceToMap(env)
+	if got["ANTHROPIC_MODEL"] != "qwopus3.6-27b-v2-mtp" {
+		t.Fatalf("ANTHROPIC_MODEL = %q, want mapped sonnet model", got["ANTHROPIC_MODEL"])
+	}
+}
+
 func TestPrepareClaudeConfigOverlayHandlesStateFileInsideConfigDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

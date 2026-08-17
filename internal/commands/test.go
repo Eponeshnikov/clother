@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jolehuit/clother/internal/profiles"
+	"github.com/jolehuit/clother/internal/providers"
 )
 
 func runTest(_ context.Context, c Context, args []string) (int, error) {
@@ -21,13 +22,29 @@ func runTest(_ context.Context, c Context, args []string) (int, error) {
 		targets = profiles.All(c.Catalog, c.Config)
 	}
 
-	client := &http.Client{Timeout: 5 * time.Second}
 	okCount, failCount := 0, 0
 	for _, target := range targets {
 		if target.Profile == "native" {
 			continue
 		}
 		req, _ := http.NewRequest(http.MethodGet, target.TestURL, nil)
+		token := ""
+		switch target.AuthMode {
+		case providers.AuthSecret, providers.AuthOptionalSecret:
+			token = c.Secrets[target.SecretKey]
+		case providers.AuthLiteral:
+			token = target.LiteralAuthToken
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+			req.Header.Set("x-api-key", token)
+		}
+		client, clientErr := clientForTarget(target, 5*time.Second)
+		if clientErr != nil {
+			fmt.Fprintf(c.Output.Stdout, "  %-18s invalid proxy\n", target.Profile)
+			failCount++
+			continue
+		}
 		resp, err := client.Do(req)
 		if err != nil {
 			fmt.Fprintf(c.Output.Stdout, "  %-18s unreachable\n", target.Profile)

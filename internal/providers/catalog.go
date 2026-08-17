@@ -13,9 +13,10 @@ var rawCatalog []byte
 type AuthMode string
 
 const (
-	AuthNone    AuthMode = "none"
-	AuthSecret  AuthMode = "secret"
-	AuthLiteral AuthMode = "literal"
+	AuthNone           AuthMode = "none"
+	AuthSecret         AuthMode = "secret"
+	AuthLiteral        AuthMode = "literal"
+	AuthOptionalSecret AuthMode = "optional_secret"
 )
 
 type Family string

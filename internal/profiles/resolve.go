@@ -11,18 +11,23 @@ import (
 )
 
 type Target struct {
-	Profile          string
-	DisplayName      string
-	Description      string
-	Category         string
-	Family           providers.Family
-	BaseURL          string
-	Model            string
-	ModelTiers       map[string]string
-	AuthMode         providers.AuthMode
-	SecretKey        string
-	LiteralAuthToken string
-	TestURL          string
+	Profile           string
+	DisplayName       string
+	Description       string
+	Category          string
+	Family            providers.Family
+	BaseURL           string
+	Model             string
+	ModelTiers        map[string]string
+	AuthMode          providers.AuthMode
+	SecretKey         string
+	LiteralAuthToken  string
+	TestURL           string
+	MaxContextTokens  int
+	AutoCompactWindow int
+	ProxyURL          string
+	NoProxy           string
+	SubagentModel     string
 }
 
 func Invocation(argv0 string) (string, bool) {
@@ -52,23 +57,34 @@ func Resolve(profile string, catalog providers.Catalog, cfg *config.File) (Targe
 				"small":  override.Model,
 			}
 		}
+		if override.DefaultModel != "" {
+			model = override.DefaultModel
+		}
+		for tier, tierModel := range override.ModelTiers {
+			modelTiers[tier] = tierModel
+		}
 		if override.BaseURL != "" {
 			baseURL = override.BaseURL
 			testURL = override.BaseURL
 		}
 		return Target{
-			Profile:          profile,
-			DisplayName:      provider.DisplayName,
-			Description:      provider.Description,
-			Category:         provider.Category,
-			Family:           provider.Family,
-			BaseURL:          baseURL,
-			Model:            model,
-			ModelTiers:       compactModelTiers(modelTiers),
-			AuthMode:         provider.AuthMode,
-			SecretKey:        provider.KeyVar,
-			LiteralAuthToken: provider.LiteralAuthToken,
-			TestURL:          testURL,
+			Profile:           profile,
+			DisplayName:       provider.DisplayName,
+			Description:       provider.Description,
+			Category:          provider.Category,
+			Family:            provider.Family,
+			BaseURL:           baseURL,
+			Model:             model,
+			ModelTiers:        compactModelTiers(modelTiers),
+			AuthMode:          provider.AuthMode,
+			SecretKey:         provider.KeyVar,
+			LiteralAuthToken:  provider.LiteralAuthToken,
+			TestURL:           testURL,
+			MaxContextTokens:  override.MaxContextTokens,
+			AutoCompactWindow: override.AutoCompactWindow,
+			ProxyURL:          override.ProxyURL,
+			NoProxy:           override.NoProxy,
+			SubagentModel:     override.SubagentModel,
 		}, nil
 	}
 	if strings.HasPrefix(profile, "or-") {
@@ -96,18 +112,24 @@ func Resolve(profile string, catalog providers.Catalog, cfg *config.File) (Targe
 		}, nil
 	}
 	if custom, ok := cfg.CustomProviders[profile]; ok {
+		modelTiers := copyMap(custom.ModelTiers)
 		return Target{
-			Profile:     profile,
-			DisplayName: custom.DisplayName,
-			Description: "Custom provider",
-			Category:    "advanced",
-			Family:      providers.FamilyCustomUnknown,
-			BaseURL:     custom.BaseURL,
-			Model:       custom.DefaultModel,
-			ModelTiers:  map[string]string{},
-			AuthMode:    providers.AuthSecret,
-			SecretKey:   custom.APIKeyEnv,
-			TestURL:     custom.BaseURL,
+			Profile:           profile,
+			DisplayName:       custom.DisplayName,
+			Description:       "Custom provider",
+			Category:          "advanced",
+			Family:            providers.FamilyCustomUnknown,
+			BaseURL:           custom.BaseURL,
+			Model:             custom.DefaultModel,
+			ModelTiers:        compactModelTiers(modelTiers),
+			AuthMode:          providers.AuthSecret,
+			SecretKey:         custom.APIKeyEnv,
+			TestURL:           custom.BaseURL,
+			MaxContextTokens:  custom.MaxContextTokens,
+			AutoCompactWindow: custom.AutoCompactWindow,
+			ProxyURL:          custom.ProxyURL,
+			NoProxy:           custom.NoProxy,
+			SubagentModel:     custom.SubagentModel,
 		}, nil
 	}
 	return Target{}, fmt.Errorf("unknown profile %q", profile)

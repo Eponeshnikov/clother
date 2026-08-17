@@ -134,6 +134,11 @@ func doBench(ctx context.Context, target profiles.Target, secrets config.Secrets
 		apiKey = secrets[target.SecretKey]
 	case providers.AuthLiteral:
 		apiKey = target.LiteralAuthToken
+	case providers.AuthOptionalSecret:
+		apiKey = secrets[target.SecretKey]
+		if apiKey == "" {
+			apiKey = target.LiteralAuthToken
+		}
 	}
 
 	endpoint := strings.TrimRight(target.BaseURL, "/") + "/v1/messages"
@@ -158,13 +163,17 @@ func doBench(ctx context.Context, target profiles.Target, secrets config.Secrets
 	}
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("anthropic-version", "2023-06-01")
-	if target.Family == providers.FamilyOpenRouter {
+	if target.Family == providers.FamilyOpenRouter || target.AuthMode == providers.AuthOptionalSecret {
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	} else {
 		req.Header.Set("x-api-key", apiKey)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client, err := clientForTarget(target, 30*time.Second)
+	if err != nil {
+		res.Err = err
+		return res
+	}
 	start := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
@@ -244,7 +253,7 @@ func benchModel(target profiles.Target) string {
 	if target.Model != "" {
 		return target.Model
 	}
-	for _, tier := range []string{"sonnet", "opus", "haiku", "small"} {
+	for _, tier := range []string{"fable", "sonnet", "opus", "haiku", "small"} {
 		if model := target.ModelTiers[tier]; model != "" {
 			return model
 		}

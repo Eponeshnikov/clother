@@ -147,7 +147,9 @@ func TestConfigBuiltinLocalProviderStoresRemoteBaseURL(t *testing.T) {
 		Secrets: config.Secrets{},
 		Catalog: catalog,
 		Output:  &ui.Output{Stdout: io.Discard, Stderr: io.Discard, Format: ui.FormatHuman},
-		Prompt:  ui.NewPrompter(strings.NewReader("http://192.168.123.123:1234\n"), io.Discard),
+		Prompt: ui.NewPrompter(strings.NewReader(
+			"\nhttp://192.168.123.123:1234\n"+strings.Repeat("\n", 9),
+		), io.Discard),
 	}
 
 	code, err := configBuiltin(ctx, provider)
@@ -162,7 +164,7 @@ func TestConfigBuiltinLocalProviderStoresRemoteBaseURL(t *testing.T) {
 	}
 
 	// Re-running config and accepting the default keeps the override.
-	ctx.Prompt = ui.NewPrompter(strings.NewReader("\n"), io.Discard)
+	ctx.Prompt = ui.NewPrompter(strings.NewReader(strings.Repeat("\n", 11)), io.Discard)
 	if _, err := configBuiltin(ctx, provider); err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +173,9 @@ func TestConfigBuiltinLocalProviderStoresRemoteBaseURL(t *testing.T) {
 	}
 
 	// Entering the catalog default clears the override.
-	ctx.Prompt = ui.NewPrompter(strings.NewReader("http://localhost:1234\n"), io.Discard)
+	ctx.Prompt = ui.NewPrompter(strings.NewReader(
+		"\nhttp://localhost:1234\n"+strings.Repeat("\n", 9),
+	), io.Discard)
 	if _, err := configBuiltin(ctx, provider); err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +184,7 @@ func TestConfigBuiltinLocalProviderStoresRemoteBaseURL(t *testing.T) {
 	}
 
 	// A non-HTTP value is rejected.
-	ctx.Prompt = ui.NewPrompter(strings.NewReader("192.168.1.4:1234\n"), io.Discard)
+	ctx.Prompt = ui.NewPrompter(strings.NewReader("\n192.168.1.4:1234\n"), io.Discard)
 	if code, err := configBuiltin(ctx, provider); err == nil || code == 0 {
 		t.Fatalf("expected invalid base URL error, got code=%d err=%v", code, err)
 	}

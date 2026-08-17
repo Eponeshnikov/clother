@@ -13,16 +13,36 @@ import (
 )
 
 type ProviderOverride struct {
-	Model   string `json:"model,omitempty"`
-	BaseURL string `json:"base_url,omitempty"`
+	// Model is the legacy all-tier override kept for config compatibility.
+	Model             string            `json:"model,omitempty"`
+	BaseURL           string            `json:"base_url,omitempty"`
+	DefaultModel      string            `json:"default_model,omitempty"`
+	ModelTiers        map[string]string `json:"model_tiers,omitempty"`
+	MaxContextTokens  int               `json:"max_context_tokens,omitempty"`
+	AutoCompactWindow int               `json:"auto_compact_window,omitempty"`
+	ProxyURL          string            `json:"proxy_url,omitempty"`
+	NoProxy           string            `json:"no_proxy,omitempty"`
+	SubagentModel     string            `json:"subagent_model,omitempty"`
+}
+
+func (o ProviderOverride) Empty() bool {
+	return o.Model == "" && o.BaseURL == "" && o.DefaultModel == "" && len(o.ModelTiers) == 0 &&
+		o.MaxContextTokens == 0 && o.AutoCompactWindow == 0 && o.ProxyURL == "" &&
+		o.NoProxy == "" && o.SubagentModel == ""
 }
 
 type CustomProvider struct {
-	Name         string `json:"name"`
-	DisplayName  string `json:"display_name"`
-	BaseURL      string `json:"base_url"`
-	APIKeyEnv    string `json:"api_key_env"`
-	DefaultModel string `json:"default_model,omitempty"`
+	Name              string            `json:"name"`
+	DisplayName       string            `json:"display_name"`
+	BaseURL           string            `json:"base_url"`
+	APIKeyEnv         string            `json:"api_key_env"`
+	DefaultModel      string            `json:"default_model,omitempty"`
+	ModelTiers        map[string]string `json:"model_tiers,omitempty"`
+	MaxContextTokens  int               `json:"max_context_tokens,omitempty"`
+	AutoCompactWindow int               `json:"auto_compact_window,omitempty"`
+	ProxyURL          string            `json:"proxy_url,omitempty"`
+	NoProxy           string            `json:"no_proxy,omitempty"`
+	SubagentModel     string            `json:"subagent_model,omitempty"`
 }
 
 type File struct {
@@ -124,6 +144,11 @@ func (cfg *File) Normalize(catalog providers.Catalog) {
 	for id, override := range cfg.ProviderOverrides {
 		override.Model = strings.TrimSpace(override.Model)
 		override.BaseURL = strings.TrimSpace(override.BaseURL)
+		override.DefaultModel = strings.TrimSpace(override.DefaultModel)
+		override.ModelTiers = normalizeModelTiers(override.ModelTiers)
+		override.ProxyURL = strings.TrimRight(strings.TrimSpace(override.ProxyURL), "/")
+		override.NoProxy = strings.TrimSpace(override.NoProxy)
+		override.SubagentModel = strings.TrimSpace(override.SubagentModel)
 		provider, ok := catalog.Get(id)
 		if ok {
 			override.Model = normalizeProviderOverrideModel(provider, override.Model)
@@ -134,11 +159,24 @@ func (cfg *File) Normalize(catalog providers.Catalog) {
 				override.BaseURL = ""
 			}
 		}
-		if override == (ProviderOverride{}) {
+		if override.Empty() {
 			delete(cfg.ProviderOverrides, id)
 			continue
 		}
 		cfg.ProviderOverrides[id] = override
+	}
+
+	for name, custom := range cfg.CustomProviders {
+		custom.Name = strings.TrimSpace(custom.Name)
+		custom.DisplayName = strings.TrimSpace(custom.DisplayName)
+		custom.BaseURL = strings.TrimRight(strings.TrimSpace(custom.BaseURL), "/")
+		custom.APIKeyEnv = strings.TrimSpace(custom.APIKeyEnv)
+		custom.DefaultModel = strings.TrimSpace(custom.DefaultModel)
+		custom.ModelTiers = normalizeModelTiers(custom.ModelTiers)
+		custom.ProxyURL = strings.TrimRight(strings.TrimSpace(custom.ProxyURL), "/")
+		custom.NoProxy = strings.TrimSpace(custom.NoProxy)
+		custom.SubagentModel = strings.TrimSpace(custom.SubagentModel)
+		cfg.CustomProviders[name] = custom
 	}
 
 	normalizedAliases := map[string]string{}
@@ -153,6 +191,19 @@ func (cfg *File) Normalize(catalog providers.Catalog) {
 		}
 	}
 	cfg.OpenRouterAliases = normalizedAliases
+}
+
+func normalizeModelTiers(input map[string]string) map[string]string {
+	out := map[string]string{}
+	for _, tier := range []string{"fable", "opus", "sonnet", "haiku"} {
+		if value := strings.TrimSpace(input[tier]); value != "" {
+			out[tier] = value
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func normalizeProviderOverrideModel(provider providers.Provider, value string) string {

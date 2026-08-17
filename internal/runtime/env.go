@@ -47,6 +47,11 @@ func BuildEnv(target profiles.Target, secrets config.Secrets) ([]string, error) 
 	}
 	if target.Model != "" {
 		envMap["ANTHROPIC_MODEL"] = target.Model
+		if target.Family == providers.FamilyLocal || target.Family == providers.FamilyCustomUnknown {
+			envMap["ANTHROPIC_CUSTOM_MODEL_OPTION"] = target.Model
+			envMap["ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"] = target.DisplayName + ": " + target.Model
+			envMap["ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION"] = "Custom model via " + target.DisplayName
+		}
 	}
 	for key, value := range target.ModelTiers {
 		switch key {
@@ -56,6 +61,8 @@ func BuildEnv(target profiles.Target, secrets config.Secrets) ([]string, error) 
 			envMap["ANTHROPIC_DEFAULT_SONNET_MODEL"] = value
 		case "opus":
 			envMap["ANTHROPIC_DEFAULT_OPUS_MODEL"] = value
+		case "fable":
+			envMap["ANTHROPIC_DEFAULT_FABLE_MODEL"] = value
 		case "small":
 			envMap["ANTHROPIC_SMALL_FAST_MODEL"] = value
 		}
@@ -75,8 +82,36 @@ func BuildEnv(target profiles.Target, secrets config.Secrets) ([]string, error) 
 		if target.Family == providers.FamilyOpenRouter || target.Family == providers.FamilyLocal || target.Family == providers.FamilyCustomUnknown {
 			envMap["ANTHROPIC_API_KEY"] = ""
 		}
+	case providers.AuthOptionalSecret:
+		value := secrets[target.SecretKey]
+		if value == "" {
+			value = target.LiteralAuthToken
+		}
+		envMap["ANTHROPIC_AUTH_TOKEN"] = value
+		envMap["ANTHROPIC_API_KEY"] = ""
 	default:
 		return nil, fmt.Errorf("unsupported auth mode %q", target.AuthMode)
+	}
+
+	if target.MaxContextTokens > 0 {
+		envMap["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = fmt.Sprint(target.MaxContextTokens)
+	}
+	if target.AutoCompactWindow > 0 {
+		envMap["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = fmt.Sprint(target.AutoCompactWindow)
+	}
+	if target.SubagentModel != "" {
+		envMap["CLAUDE_CODE_SUBAGENT_MODEL"] = target.SubagentModel
+	}
+	if target.ProxyURL != "" {
+		for _, key := range []string{"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"} {
+			envMap[key] = target.ProxyURL
+		}
+		noProxy := target.NoProxy
+		if noProxy == "" {
+			noProxy = "localhost,127.0.0.1,.local"
+		}
+		envMap["NO_PROXY"] = noProxy
+		envMap["no_proxy"] = noProxy
 	}
 
 	return flattenEnv(envMap), nil

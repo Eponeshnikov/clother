@@ -55,7 +55,7 @@ func runList(_ context.Context, c Context) (int, error) {
 
 func configured(target profiles.Target, secrets config.Secrets) bool {
 	switch target.AuthMode {
-	case providers.AuthNone, providers.AuthLiteral:
+	case providers.AuthNone, providers.AuthLiteral, providers.AuthOptionalSecret:
 		return true
 	case providers.AuthSecret:
 		return strings.TrimSpace(secrets[target.SecretKey]) != ""

@@ -20,15 +20,20 @@ func PrepareClaudeConfigOverlay(target profiles.Target, args []string, env []str
 	envMap := envSliceToMap(env)
 	overrideModel := ModelOverride(args)
 	if overrideModel != "" {
-		envMap["ANTHROPIC_MODEL"] = overrideModel
+		resolvedModel := overrideModel
+		if mapped := target.ModelTiers[strings.ToLower(overrideModel)]; mapped != "" {
+			resolvedModel = mapped
+		}
+		envMap["ANTHROPIC_MODEL"] = resolvedModel
 		for _, key := range []string{
+			"ANTHROPIC_DEFAULT_FABLE_MODEL",
 			"ANTHROPIC_DEFAULT_HAIKU_MODEL",
 			"ANTHROPIC_DEFAULT_SONNET_MODEL",
 			"ANTHROPIC_DEFAULT_OPUS_MODEL",
 			"ANTHROPIC_SMALL_FAST_MODEL",
 			"CLAUDE_CODE_SUBAGENT_MODEL",
 		} {
-			envMap[key] = overrideModel
+			envMap[key] = resolvedModel
 		}
 	}
 
@@ -96,6 +101,7 @@ func anthropicEnv(envMap map[string]string) map[string]string {
 func effectiveSessionModel(target profiles.Target, envMap map[string]string) string {
 	for _, key := range []string{
 		"ANTHROPIC_MODEL",
+		"ANTHROPIC_DEFAULT_FABLE_MODEL",
 		"ANTHROPIC_DEFAULT_OPUS_MODEL",
 		"ANTHROPIC_DEFAULT_SONNET_MODEL",
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL",
@@ -109,7 +115,7 @@ func effectiveSessionModel(target profiles.Target, envMap map[string]string) str
 	if model := strings.TrimSpace(target.Model); model != "" {
 		return model
 	}
-	for _, key := range []string{"opus", "sonnet", "haiku", "small"} {
+	for _, key := range []string{"fable", "opus", "sonnet", "haiku", "small"} {
 		if model := strings.TrimSpace(target.ModelTiers[key]); model != "" {
 			return model
 		}

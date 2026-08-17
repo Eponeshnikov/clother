@@ -135,6 +135,66 @@ func TestBuildEnvClearsUnusedTierVariables(t *testing.T) {
 	}
 }
 
+func TestBuildEnvForAuthenticatedProxiedLocalModel(t *testing.T) {
+	t.Parallel()
+
+	target := profiles.Target{
+		Profile:           "lmstudio",
+		DisplayName:       "LM Studio",
+		Family:            providers.FamilyLocal,
+		BaseURL:           "https://lmstudio.example.com",
+		Model:             "qwen3.8-27b-mtp",
+		ModelTiers:        map[string]string{"opus": "qwen3.8-27b-mtp", "sonnet": "qwopus3.6-27b-v2-mtp"},
+		AuthMode:          providers.AuthOptionalSecret,
+		SecretKey:         "LMSTUDIO_API_KEY",
+		LiteralAuthToken:  "lmstudio",
+		MaxContextTokens:  110_000,
+		AutoCompactWindow: 100_000,
+		ProxyURL:          "http://127.0.0.1:2080",
+		SubagentModel:     "inherit",
+	}
+
+	env, err := BuildEnv(target, config.Secrets{"LMSTUDIO_API_KEY": "lms-secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := envToMap(env)
+	want := map[string]string{
+		"ANTHROPIC_AUTH_TOKEN":            "lms-secret",
+		"ANTHROPIC_MODEL":                 "qwen3.8-27b-mtp",
+		"ANTHROPIC_CUSTOM_MODEL_OPTION":   "qwen3.8-27b-mtp",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL":    "qwen3.8-27b-mtp",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL":  "qwopus3.6-27b-v2-mtp",
+		"CLAUDE_CODE_MAX_CONTEXT_TOKENS":  "110000",
+		"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "100000",
+		"CLAUDE_CODE_SUBAGENT_MODEL":      "inherit",
+		"HTTP_PROXY":                      "http://127.0.0.1:2080",
+		"HTTPS_PROXY":                     "http://127.0.0.1:2080",
+	}
+	for key, value := range want {
+		if got[key] != value {
+			t.Errorf("%s = %q, want %q", key, got[key], value)
+		}
+	}
+}
+
+func TestBuildEnvOptionalSecretFallsBackToLiteralToken(t *testing.T) {
+	t.Parallel()
+	target := profiles.Target{
+		Family:           providers.FamilyLocal,
+		AuthMode:         providers.AuthOptionalSecret,
+		SecretKey:        "LMSTUDIO_API_KEY",
+		LiteralAuthToken: "lmstudio",
+	}
+	env, err := BuildEnv(target, config.Secrets{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := envToMap(env)["ANTHROPIC_AUTH_TOKEN"]; got != "lmstudio" {
+		t.Fatalf("ANTHROPIC_AUTH_TOKEN = %q, want literal fallback", got)
+	}
+}
+
 func envToMap(env []string) map[string]string {
 	out := map[string]string{}
 	for _, pair := range env {
