@@ -61,7 +61,11 @@ func Sync(execPath string, paths config.Paths, catalog providers.Catalog, cfg *c
 		if _, ok := desired[old]; ok {
 			continue
 		}
-		_ = os.Remove(filepath.Join(paths.BinDir, old))
+		oldPath := filepath.Join(paths.BinDir, old)
+		if shouldPreserveExternalLauncher(oldPath, execPath) {
+			continue
+		}
+		_ = os.Remove(oldPath)
 	}
 
 	var launchers []string
@@ -71,7 +75,7 @@ func Sync(execPath string, paths config.Paths, catalog providers.Catalog, cfg *c
 	sort.Strings(launchers)
 	for _, name := range launchers {
 		link := filepath.Join(paths.BinDir, name)
-		if name == "clother-native" && shouldPreserveExternalShim(link, execPath) {
+		if shouldPreserveExternalLauncher(link, execPath) {
 			continue
 		}
 		_ = os.Remove(link)
@@ -80,7 +84,7 @@ func Sync(execPath string, paths config.Paths, catalog providers.Catalog, cfg *c
 		}
 	}
 	claudeShim := filepath.Join(paths.BinDir, "claude")
-	if !shouldPreserveExternalShim(claudeShim, execPath) {
+	if !shouldPreserveExternalLauncher(claudeShim, execPath) {
 		_ = os.Remove(claudeShim)
 		if err := os.Symlink(symlinkTarget, claudeShim); err != nil {
 			return err
@@ -89,10 +93,11 @@ func Sync(execPath string, paths config.Paths, catalog providers.Catalog, cfg *c
 	return SaveManifest(paths.ManifestFile, Manifest{Launchers: launchers})
 }
 
-func shouldPreserveExternalShim(path, execPath string) bool {
+func shouldPreserveExternalLauncher(path, execPath string) bool {
 	target, err := os.Readlink(path)
 	if err != nil {
-		return false
+		info, statErr := os.Stat(path)
+		return statErr == nil && !info.IsDir()
 	}
 	if target == "clother" || target == execPath {
 		return false

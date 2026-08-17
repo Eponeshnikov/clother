@@ -193,11 +193,18 @@ func TestSyncPreservesExternalClaudeProxyShims(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	utilityPath := filepath.Join(paths.BinDir, "clother-lmstudio-models")
+	utilityContent := []byte("#!/bin/sh\necho models\n")
+	if err := os.WriteFile(utilityPath, utilityContent, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	catalog, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := &config.File{Version: 1, ProviderOverrides: map[string]config.ProviderOverride{}, OpenRouterAliases: map[string]string{}, CustomProviders: map[string]config.CustomProvider{}}
+	cfg := &config.File{Version: 1, ProviderOverrides: map[string]config.ProviderOverride{}, OpenRouterAliases: map[string]string{}, CustomProviders: map[string]config.CustomProvider{
+		"lmstudio-models": {Name: "lmstudio-models", BaseURL: "https://example.com", APIKeyEnv: "LMSTUDIO_MODELS_API_KEY"},
+	}}
 	if err := Sync(execPath, paths, catalog, cfg, false); err != nil {
 		t.Fatal(err)
 	}
@@ -209,5 +216,12 @@ func TestSyncPreservesExternalClaudeProxyShims(t *testing.T) {
 		if target != "claude-real" {
 			t.Fatalf("%s target = %q, want preserved proxy shim", name, target)
 		}
+	}
+	gotUtility, err := os.ReadFile(utilityPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotUtility) != string(utilityContent) {
+		t.Fatalf("external utility launcher was overwritten: %q", gotUtility)
 	}
 }

@@ -21,6 +21,13 @@ func TestIsNewer(t *testing.T) {
 	}
 }
 
+func TestDisplayVersionKeepsLocalBuildLabel(t *testing.T) {
+	t.Parallel()
+	if got := DisplayVersion("3.0.10-local.2"); got != "3.0.10-local.2" {
+		t.Fatalf("DisplayVersion(local) = %q", got)
+	}
+}
+
 func TestMaybeMessageFetchesAndCachesUpdate(t *testing.T) {
 	t.Parallel()
 

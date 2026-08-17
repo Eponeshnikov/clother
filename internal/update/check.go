@@ -209,7 +209,10 @@ func displayVersion(version string) string {
 }
 
 func DisplayVersion(version string) string {
-	return displayVersion(version)
+	if displayed := displayVersion(version); displayed != "" {
+		return displayed
+	}
+	return strings.TrimSpace(version)
 }
 
 func normalizeVersion(version string) string {

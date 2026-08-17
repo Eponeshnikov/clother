@@ -54,7 +54,7 @@ func MigrateLegacyLaunchers(binDir string, catalog providers.Catalog, cfg *File)
 			}
 			continue
 		}
-		if baseURL := envs["ANTHROPIC_BASE_URL"]; baseURL != "" {
+		if baseURL := envs["ANTHROPIC_BASE_URL"]; validMigratedURL(baseURL) {
 			cfg.CustomProviders[profile] = CustomProvider{
 				Name:         profile,
 				DisplayName:  profile,
@@ -65,6 +65,14 @@ func MigrateLegacyLaunchers(binDir string, catalog providers.Catalog, cfg *File)
 		}
 	}
 	return nil
+}
+
+func validMigratedURL(value string) bool {
+	value = strings.TrimSpace(value)
+	if strings.ContainsAny(value, "$`") {
+		return false
+	}
+	return strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://")
 }
 
 func readLines(path string) ([]string, error) {
