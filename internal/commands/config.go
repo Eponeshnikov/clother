@@ -46,19 +46,23 @@ func runConfig(_ context.Context, c Context, args []string) (int, error) {
 func chooseProvider(c Context) (string, error) {
 	index := 1
 	choices := map[int]string{}
+	width := len("openrouter")
+	for _, id := range c.Catalog.IDs() {
+		width = max(width, len(id))
+	}
 	c.Output.Header("Clother Configuration")
 	for _, category := range c.Catalog.Categories() {
 		fmt.Fprintln(c.Output.Stdout, category)
 		for _, provider := range c.Catalog.ProvidersByCategory(category) {
-			fmt.Fprintf(c.Output.Stdout, "  %2d. %-14s %s\n", index, provider.ID, provider.Description)
+			fmt.Fprintf(c.Output.Stdout, "  %2d. %-*s  %s\n", index, width, provider.ID, provider.Description)
 			choices[index] = provider.ID
 			index++
 		}
 	}
-	fmt.Fprintf(c.Output.Stdout, "  %2d. %-14s %s\n", index, "openrouter", "100+ models")
+	fmt.Fprintf(c.Output.Stdout, "  %2d. %-*s  %s\n", index, width, "openrouter", "100+ models")
 	choices[index] = "openrouter"
 	index++
-	fmt.Fprintf(c.Output.Stdout, "  %2d. %-14s %s\n", index, "custom", "Anthropic-compatible endpoint")
+	fmt.Fprintf(c.Output.Stdout, "  %2d. %-*s  %s\n", index, width, "custom", "Anthropic-compatible endpoint")
 	choices[index] = "custom"
 
 	answer, err := c.Prompt.Prompt("Choose provider number", "")
@@ -114,27 +118,6 @@ func configBuiltin(c Context, provider providers.Provider) (int, error) {
 
 	override := c.Config.ProviderOverrides[provider.ID]
 
-	if provider.DefaultModel != "" {
-		fmt.Fprintln(c.Output.Stdout, "Choose model:")
-		for idx, choice := range provider.ModelChoices {
-			fmt.Fprintf(c.Output.Stdout, "  %d. %-24s %s\n", idx+1, choice.ID, choice.Description)
-		}
-		defaultValue := provider.DefaultModel
-		if override.Model != "" {
-			defaultValue = override.Model
-		}
-		answer, err := c.Prompt.Prompt("Model", defaultValue)
-		if err != nil {
-			return 1, err
-		}
-		answer = resolveModelChoice(answer, provider.ModelChoices)
-		if answer != "" && answer != provider.DefaultModel {
-			override.Model = answer
-		} else {
-			override.Model = ""
-		}
-	}
-
 	// Local backends may run on another machine (e.g. LM Studio on a LAN
 	// host), so let the user point the launcher at a remote base URL.
 	if provider.Family == providers.FamilyLocal {
@@ -156,11 +139,48 @@ func configBuiltin(c Context, provider providers.Provider) (int, error) {
 			override.BaseURL = ""
 		}
 
-		if err := promptProviderRuntimeOptions(c, &override.DefaultModel, &override.ModelTiers,
-			&override.MaxContextTokens, &override.AutoCompactWindow, &override.ProxyURL,
-			&override.NoProxy, &override.SubagentModel, &override.GatewayDiscovery,
-			&override.EffortLevel, &override.ModelCapabilities); err != nil {
+		model, err := promptOptional(c, "Default model (shown as a custom /model option)", override.Model)
+		if err != nil {
 			return 1, err
+		}
+		override.Model = model
+		if override.TierModels, err = promptTierModels(c, override.TierModels); err != nil {
+			return 1, err
+		}
+		if err := promptProviderRuntimeOptions(c, &override.MaxContextTokens,
+			&override.AutoCompactWindow, &override.ProxyURL, &override.NoProxy,
+			&override.SubagentModel, &override.GatewayDiscovery, &override.EffortLevel,
+			&override.ModelCapabilities); err != nil {
+			return 1, err
+		}
+	}
+
+	// A literal-token backend can still require a real token, e.g. LM Studio
+	// with "Require Authentication" enabled.
+	if provider.AuthMode == providers.AuthLiteral && provider.KeyVar != "" {
+		if err := promptOptionalSecret(c, provider.KeyVar); err != nil {
+			return 1, err
+		}
+	}
+
+	if provider.DefaultModel != "" {
+		fmt.Fprintln(c.Output.Stdout, "Choose model:")
+		for idx, choice := range provider.ModelChoices {
+			fmt.Fprintf(c.Output.Stdout, "  %d. %-24s %s\n", idx+1, choice.ID, choice.Description)
+		}
+		defaultValue := provider.DefaultModel
+		if override.Model != "" {
+			defaultValue = override.Model
+		}
+		answer, err := c.Prompt.Prompt("Model", defaultValue)
+		if err != nil {
+			return 1, err
+		}
+		answer = resolveModelChoice(answer, provider.ModelChoices)
+		if answer != "" && answer != provider.DefaultModel {
+			override.Model = answer
+		} else {
+			override.Model = ""
 		}
 	}
 
@@ -170,6 +190,62 @@ func configBuiltin(c Context, provider providers.Provider) (int, error) {
 		c.Config.ProviderOverrides[provider.ID] = override
 	}
 	return persistConfig(c)
+}
+
+// promptOptional asks for an optional value: empty keeps the current one and
+// "-" clears it.
+func promptOptional(c Context, label, current string) (string, error) {
+	if current != "" {
+		label += ` ("-" to clear)`
+	}
+	answer, err := c.Prompt.Prompt(label, current)
+	if err != nil {
+		return "", err
+	}
+	answer = strings.TrimSpace(answer)
+	if answer == "-" {
+		return "", nil
+	}
+	return answer, nil
+}
+
+func promptTierModels(c Context, current config.TierModels) (config.TierModels, error) {
+	fmt.Fprintln(c.Output.Stdout, "Model tiers (optional): the backend model `--model opus|sonnet|haiku` resolves to; empty uses the default model.")
+	var err error
+	out := config.TierModels{}
+	if out.OpusModel, err = promptOptional(c, "Opus model", current.OpusModel); err != nil {
+		return current, err
+	}
+	if out.SonnetModel, err = promptOptional(c, "Sonnet model", current.SonnetModel); err != nil {
+		return current, err
+	}
+	if out.HaikuModel, err = promptOptional(c, "Haiku model", current.HaikuModel); err != nil {
+		return current, err
+	}
+	return out, nil
+}
+
+// promptOptionalSecret stores, keeps or removes an optional credential. The
+// value never reaches the output: only its masked form is shown.
+func promptOptionalSecret(c Context, keyVar string) error {
+	current := c.Secrets[keyVar]
+	label := "API token (optional, empty for no authentication)"
+	if current != "" {
+		fmt.Fprintf(c.Output.Stdout, "Current token: %s\n", config.MaskSecret(current))
+		label = `API token (empty to keep current, "-" to remove)`
+	}
+	value, err := c.Prompt.PromptSecret(label)
+	if err != nil {
+		return err
+	}
+	switch value = strings.TrimSpace(value); value {
+	case "":
+	case "-":
+		delete(c.Secrets, keyVar)
+	default:
+		c.Secrets[keyVar] = value
+	}
+	return nil
 }
 
 func configOpenRouter(c Context) (int, error) {
@@ -232,8 +308,14 @@ func configCustom(c Context) (int, error) {
 		return 1, fmt.Errorf("base URL is required")
 	}
 
-	defaultModel := existing.DefaultModel
-	modelTiers := existing.ModelTiers
+	defaultModel, err := promptOptional(c, "Default model (shown as a custom /model option)", existing.DefaultModel)
+	if err != nil {
+		return 1, err
+	}
+	tiers, err := promptTierModels(c, existing.TierModels)
+	if err != nil {
+		return 1, err
+	}
 	maxContextTokens := existing.MaxContextTokens
 	autoCompactWindow := existing.AutoCompactWindow
 	proxyURL := existing.ProxyURL
@@ -242,9 +324,9 @@ func configCustom(c Context) (int, error) {
 	gatewayDiscovery := existing.GatewayDiscovery
 	effortLevel := existing.EffortLevel
 	modelCapabilities := existing.ModelCapabilities
-	if err := promptProviderRuntimeOptions(c, &defaultModel, &modelTiers, &maxContextTokens,
-		&autoCompactWindow, &proxyURL, &noProxy, &subagentModel, &gatewayDiscovery,
-		&effortLevel, &modelCapabilities); err != nil {
+	if err := promptProviderRuntimeOptions(c, &maxContextTokens, &autoCompactWindow,
+		&proxyURL, &noProxy, &subagentModel, &gatewayDiscovery, &effortLevel,
+		&modelCapabilities); err != nil {
 		return 1, err
 	}
 
@@ -273,7 +355,7 @@ func configCustom(c Context) (int, error) {
 		BaseURL:           baseURL,
 		APIKeyEnv:         keyVar,
 		DefaultModel:      defaultModel,
-		ModelTiers:        modelTiers,
+		ModelTiers:        existing.ModelTiers,
 		MaxContextTokens:  maxContextTokens,
 		AutoCompactWindow: autoCompactWindow,
 		ProxyURL:          proxyURL,
@@ -282,35 +364,15 @@ func configCustom(c Context) (int, error) {
 		GatewayDiscovery:  gatewayDiscovery,
 		EffortLevel:       effortLevel,
 		ModelCapabilities: modelCapabilities,
+		TierModels:        tiers,
 	}
 	return persistConfig(c)
 }
 
-func promptProviderRuntimeOptions(c Context, defaultModel *string, modelTiers *map[string]string,
-	maxContextTokens, autoCompactWindow *int, proxyURL, noProxy, subagentModel *string,
-	gatewayDiscovery **bool, effortLevel *string, modelCapabilities *[]string) error {
-	value, err := promptOptional(c, "Default model (shown as a custom /model option)", *defaultModel)
-	if err != nil {
-		return err
-	}
-	*defaultModel = value
-
-	if *modelTiers == nil {
-		*modelTiers = map[string]string{}
-	}
-	for _, tier := range []string{"fable", "opus", "sonnet", "haiku"} {
-		label := strings.ToUpper(tier[:1]) + tier[1:] + " model (optional)"
-		value, err := promptOptional(c, label, (*modelTiers)[tier])
-		if err != nil {
-			return err
-		}
-		if value == "" {
-			delete(*modelTiers, tier)
-		} else {
-			(*modelTiers)[tier] = value
-		}
-	}
-
+func promptProviderRuntimeOptions(c Context, maxContextTokens, autoCompactWindow *int,
+	proxyURL, noProxy, subagentModel *string, gatewayDiscovery **bool, effortLevel *string,
+	modelCapabilities *[]string) error {
+	var err error
 	if *maxContextTokens, err = promptTokenCount(c, "Maximum context tokens (optional)", *maxContextTokens, 1, 1_000_000); err != nil {
 		return err
 	}
@@ -414,21 +476,6 @@ func contains(values []string, value string) bool {
 		}
 	}
 	return false
-}
-
-func promptOptional(c Context, label, current string) (string, error) {
-	if current != "" {
-		label += " ('-' to clear)"
-	}
-	answer, err := c.Prompt.Prompt(label, current)
-	if err != nil {
-		return "", err
-	}
-	answer = strings.TrimSpace(answer)
-	if answer == "-" {
-		return "", nil
-	}
-	return answer, nil
 }
 
 func promptTokenCount(c Context, label string, current, min, max int) (int, error) {

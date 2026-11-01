@@ -34,7 +34,7 @@ func runRemove(_ context.Context, c Context, args []string) (int, error) {
 	if err != nil {
 		return code, err
 	}
-	c.Output.Success(result)
+	c.Output.Success("%s", result)
 	return 0, nil
 }
 

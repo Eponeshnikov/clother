@@ -11,17 +11,23 @@ import (
 )
 
 type Target struct {
-	Profile           string
-	DisplayName       string
-	Description       string
-	Category          string
-	Family            providers.Family
-	BaseURL           string
-	Model             string
-	ModelTiers        map[string]string
-	AuthMode          providers.AuthMode
-	SecretKey         string
-	LiteralAuthToken  string
+	Profile          string
+	DisplayName      string
+	Description      string
+	Category         string
+	Family           providers.Family
+	BaseURL          string
+	Model            string
+	ModelTiers       map[string]string
+	AuthMode         providers.AuthMode
+	SecretKey        string
+	LiteralAuthToken string
+	// CredentialEnvVar is ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY.
+	CredentialEnvVar string
+	// ExtraEnv is provider-wide tuning; ModelEnv holds per-model values such
+	// as context window sizes, keyed by model ID.
+	ExtraEnv          map[string]string
+	ModelEnv          map[string]map[string]string
 	TestURL           string
 	MaxContextTokens  int
 	AutoCompactWindow int
@@ -31,6 +37,12 @@ type Target struct {
 	GatewayDiscovery  bool
 	EffortLevel       string
 	ModelCapabilities []string
+}
+
+// removedProfiles explains launchers that used to exist, instead of the bare
+// "unknown profile" a stale symlink would otherwise print.
+var removedProfiles = map[string]string{
+	"alibaba-us": "alibaba-us was removed: Alibaba has no US Coding Plan endpoint (coding-us.dashscope.aliyuncs.com does not resolve); use clother-alibaba",
 }
 
 func Invocation(argv0 string) (string, bool) {
@@ -52,12 +64,22 @@ func Resolve(profile string, catalog providers.Catalog, cfg *config.File) (Targe
 		testURL := provider.TestURL
 		override := cfg.ProviderOverrides[profile]
 		if override.Model != "" {
+			// A default picked with `clother config` replaces the whole
+			// catalog mapping: every tier then asks for that model, and
+			// subagents follow the session model as Claude Code does by
+			// default.
 			model = override.Model
 			modelTiers = map[string]string{
-				"haiku":  override.Model,
-				"sonnet": override.Model,
-				"opus":   override.Model,
-				"small":  override.Model,
+				providers.TierOpus:   override.Model,
+				providers.TierSonnet: override.Model,
+				providers.TierHaiku:  override.Model,
+				providers.TierFable:  override.Model,
+			}
+		}
+		for tier, tierModel := range override.TierModels.Map() {
+			modelTiers[tier] = tierModel
+			if tier == providers.TierHaiku {
+				delete(modelTiers, providers.TierSmall)
 			}
 		}
 		if override.DefaultModel != "" {
@@ -82,6 +104,9 @@ func Resolve(profile string, catalog providers.Catalog, cfg *config.File) (Targe
 			AuthMode:          provider.AuthMode,
 			SecretKey:         provider.KeyVar,
 			LiteralAuthToken:  provider.LiteralAuthToken,
+			CredentialEnvVar:  provider.CredentialEnvVar(),
+			ExtraEnv:          copyMap(provider.ExtraEnv),
+			ModelEnv:          provider.ModelEnv(),
 			TestURL:           testURL,
 			MaxContextTokens:  override.MaxContextTokens,
 			AutoCompactWindow: override.AutoCompactWindow,
@@ -107,18 +132,23 @@ func Resolve(profile string, catalog providers.Catalog, cfg *config.File) (Targe
 			Family:      providers.FamilyOpenRouter,
 			BaseURL:     "https://openrouter.ai/api",
 			ModelTiers: map[string]string{
-				"haiku":  model,
-				"sonnet": model,
-				"opus":   model,
-				"small":  model,
+				providers.TierHaiku:  model,
+				providers.TierSonnet: model,
+				providers.TierOpus:   model,
+				providers.TierFable:  model,
+				providers.TierSmall:  model,
 			},
-			AuthMode:  providers.AuthSecret,
-			SecretKey: "OPENROUTER_API_KEY",
-			TestURL:   "https://openrouter.ai/api",
+			AuthMode:         providers.AuthSecret,
+			SecretKey:        "OPENROUTER_API_KEY",
+			CredentialEnvVar: providers.AuthTokenEnvVar,
+			TestURL:          "https://openrouter.ai/api",
 		}, nil
 	}
 	if custom, ok := cfg.CustomProviders[profile]; ok {
 		modelTiers := copyMap(custom.ModelTiers)
+		for tier, model := range custom.TierModels.Map() {
+			modelTiers[tier] = model
+		}
 		return Target{
 			Profile:           profile,
 			DisplayName:       custom.DisplayName,
@@ -130,6 +160,7 @@ func Resolve(profile string, catalog providers.Catalog, cfg *config.File) (Targe
 			ModelTiers:        compactModelTiers(modelTiers),
 			AuthMode:          providers.AuthOptionalSecret,
 			SecretKey:         custom.APIKeyEnv,
+			CredentialEnvVar:  providers.AuthTokenEnvVar,
 			TestURL:           custom.BaseURL,
 			MaxContextTokens:  custom.MaxContextTokens,
 			AutoCompactWindow: custom.AutoCompactWindow,
@@ -141,6 +172,9 @@ func Resolve(profile string, catalog providers.Catalog, cfg *config.File) (Targe
 			ModelCapabilities: copySlice(custom.ModelCapabilities),
 		}, nil
 	}
+	if reason, ok := removedProfiles[profile]; ok {
+		return Target{}, fmt.Errorf("%s", reason)
+	}
 	return Target{}, fmt.Errorf("unknown profile %q", profile)
 }
 
@@ -150,6 +184,44 @@ func boolValue(value *bool) bool {
 
 func copySlice(input []string) []string {
 	return append([]string(nil), input...)
+}
+
+// EffectiveTiers returns the model each tier resolves to once launched.
+//
+// Third-party endpoints know none of Claude Code's built-in model IDs, so for
+// every family but claude_strict an unmapped tier is filled from the default
+// model: leaving it empty would send claude-haiku-* or claude-fable-* to the
+// provider and fail. Fable falls back to the opus mapping first, since it is
+// the tier above it. The deprecated small-fast tier follows haiku because
+// Claude Code prefers it over haiku for background work. The subagent tier is
+// only set when configured: Claude Code otherwise resolves subagents through
+// the tiers above.
+func EffectiveTiers(target Target) map[string]string {
+	tiers := compactModelTiers(target.ModelTiers)
+	if target.Family == providers.FamilyClaudeStrict {
+		return tiers
+	}
+	fallback := strings.TrimSpace(target.Model)
+	if fallback == "" {
+		for _, tier := range []string{providers.TierOpus, providers.TierSonnet, providers.TierHaiku, providers.TierFable} {
+			if tiers[tier] != "" {
+				fallback = tiers[tier]
+				break
+			}
+		}
+	}
+	for _, tier := range []string{providers.TierOpus, providers.TierSonnet, providers.TierHaiku} {
+		if tiers[tier] == "" {
+			tiers[tier] = fallback
+		}
+	}
+	if tiers[providers.TierFable] == "" {
+		tiers[providers.TierFable] = tiers[providers.TierOpus]
+	}
+	if tiers[providers.TierSmall] == "" {
+		tiers[providers.TierSmall] = tiers[providers.TierHaiku]
+	}
+	return compactModelTiers(tiers)
 }
 
 func All(catalog providers.Catalog, cfg *config.File) []Target {
@@ -183,7 +255,7 @@ func copyMap(input map[string]string) map[string]string {
 func compactModelTiers(input map[string]string) map[string]string {
 	out := map[string]string{}
 	for key, value := range input {
-		if value != "" {
+		if value = strings.TrimSpace(value); value != "" {
 			out[key] = value
 		}
 	}

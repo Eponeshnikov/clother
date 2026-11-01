@@ -7,7 +7,7 @@ DEFAULT_VERSION="$(sed -n 's/^var Value = "\(.*\)"$/\1/p' "$ROOT_DIR/internal/ve
 VERSION="${VERSION:-${GITHUB_REF_NAME:-${DEFAULT_VERSION:-dev}}}"
 
 mkdir -p "$DIST_DIR"
-rm -f "$DIST_DIR"/clother_*.tar.gz "$DIST_DIR"/checksums.txt "$DIST_DIR"/latest.json
+rm -f "$DIST_DIR"/clother_*.tar.gz "$DIST_DIR"/checksums.txt "$DIST_DIR"/checksums.txt.minisig "$DIST_DIR"/latest.json "$DIST_DIR"/RELEASE_NOTES.md
 
 build_target() {
   local os="$1"
@@ -19,7 +19,7 @@ build_target() {
   mkdir -p "$work"
   GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build \
     -trimpath \
-    -ldflags="-s -w -X github.com/jolehuit/clother/internal/version.Value=${VERSION}" \
+    -ldflags="-s -w -X github.com/jolehuit/clother/internal/version.Value=${VERSION#v}" \
     -o "$work/clother" \
     ./cmd/clother
   tar -C "$work" -czf "$DIST_DIR/$asset" clother

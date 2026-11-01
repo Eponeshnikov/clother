@@ -17,5 +17,11 @@ func clientForTarget(target profiles.Target, timeout time.Duration) (*http.Clien
 		}
 		transport.Proxy = http.ProxyURL(proxyURL)
 	}
-	return &http.Client{Transport: transport, Timeout: timeout}, nil
+	return &http.Client{
+		Transport: transport,
+		Timeout:   timeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}, nil
 }

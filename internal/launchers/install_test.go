@@ -217,11 +217,11 @@ func TestSyncPreservesExternalClaudeProxyShims(t *testing.T) {
 			t.Fatalf("%s target = %q, want preserved proxy shim", name, target)
 		}
 	}
-	gotUtility, err := os.ReadFile(utilityPath)
+	gotUtility, err := os.ReadFile(utilityPath + ".bak")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(gotUtility) != string(utilityContent) {
-		t.Fatalf("external utility launcher was overwritten: %q", gotUtility)
+		t.Fatalf("external utility launcher backup differs: %q", gotUtility)
 	}
 }

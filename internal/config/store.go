@@ -12,6 +12,37 @@ import (
 	"github.com/jolehuit/clother/internal/providers"
 )
 
+// TierModels maps Claude Code's model aliases to backend model IDs. An empty
+// field falls back to the default model.
+type TierModels struct {
+	OpusModel   string `json:"opus_model,omitempty"`
+	SonnetModel string `json:"sonnet_model,omitempty"`
+	HaikuModel  string `json:"haiku_model,omitempty"`
+}
+
+// Map returns the non-empty tier mappings keyed by tier name.
+func (t TierModels) Map() map[string]string {
+	out := map[string]string{}
+	for tier, model := range map[string]string{
+		providers.TierOpus:   t.OpusModel,
+		providers.TierSonnet: t.SonnetModel,
+		providers.TierHaiku:  t.HaikuModel,
+	} {
+		if model = strings.TrimSpace(model); model != "" {
+			out[tier] = model
+		}
+	}
+	return out
+}
+
+func (t TierModels) trimmed() TierModels {
+	return TierModels{
+		OpusModel:   strings.TrimSpace(t.OpusModel),
+		SonnetModel: strings.TrimSpace(t.SonnetModel),
+		HaikuModel:  strings.TrimSpace(t.HaikuModel),
+	}
+}
+
 type ProviderOverride struct {
 	// Model is the legacy all-tier override kept for config compatibility.
 	Model             string            `json:"model,omitempty"`
@@ -26,13 +57,14 @@ type ProviderOverride struct {
 	GatewayDiscovery  *bool             `json:"gateway_model_discovery,omitempty"`
 	EffortLevel       string            `json:"effort_level,omitempty"`
 	ModelCapabilities []string          `json:"model_capabilities,omitempty"`
+	TierModels
 }
 
 func (o ProviderOverride) Empty() bool {
 	return o.Model == "" && o.BaseURL == "" && o.DefaultModel == "" && len(o.ModelTiers) == 0 &&
 		o.MaxContextTokens == 0 && o.AutoCompactWindow == 0 && o.ProxyURL == "" &&
 		o.NoProxy == "" && o.SubagentModel == "" && o.GatewayDiscovery == nil &&
-		o.EffortLevel == "" && len(o.ModelCapabilities) == 0
+		o.EffortLevel == "" && len(o.ModelCapabilities) == 0 && len(o.TierModels.Map()) == 0
 }
 
 type CustomProvider struct {
@@ -50,6 +82,7 @@ type CustomProvider struct {
 	GatewayDiscovery  *bool             `json:"gateway_model_discovery,omitempty"`
 	EffortLevel       string            `json:"effort_level,omitempty"`
 	ModelCapabilities []string          `json:"model_capabilities,omitempty"`
+	TierModels
 }
 
 type File struct {
@@ -158,6 +191,7 @@ func (cfg *File) Normalize(catalog providers.Catalog) {
 		override.SubagentModel = strings.TrimSpace(override.SubagentModel)
 		override.EffortLevel = normalizeEffortLevel(override.EffortLevel)
 		override.ModelCapabilities = normalizeCapabilities(override.ModelCapabilities)
+		override.TierModels = override.TierModels.trimmed()
 		provider, ok := catalog.Get(id)
 		if ok {
 			override.Model = normalizeProviderOverrideModel(provider, override.Model)

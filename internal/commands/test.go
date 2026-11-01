@@ -7,10 +7,9 @@ import (
 	"time"
 
 	"github.com/jolehuit/clother/internal/profiles"
-	"github.com/jolehuit/clother/internal/providers"
 )
 
-func runTest(_ context.Context, c Context, args []string) (int, error) {
+func runTest(ctx context.Context, c Context, args []string) (int, error) {
 	var targets []profiles.Target
 	if len(args) > 0 {
 		target, err := profiles.Resolve(args[0], c.Catalog, c.Config)
@@ -27,18 +26,13 @@ func runTest(_ context.Context, c Context, args []string) (int, error) {
 		if target.Profile == "native" {
 			continue
 		}
-		req, _ := http.NewRequest(http.MethodGet, target.TestURL, nil)
-		token := ""
-		switch target.AuthMode {
-		case providers.AuthSecret, providers.AuthOptionalSecret:
-			token = c.Secrets[target.SecretKey]
-		case providers.AuthLiteral:
-			token = target.LiteralAuthToken
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.TestURL, nil)
+		if err != nil {
+			fmt.Fprintf(c.Output.Stdout, "  %-18s invalid URL\n", target.Profile)
+			failCount++
+			continue
 		}
-		if token != "" {
-			req.Header.Set("Authorization", "Bearer "+token)
-			req.Header.Set("x-api-key", token)
-		}
+		setCredentialHeader(req, target, targetCredential(target, c.Secrets))
 		client, clientErr := clientForTarget(target, 5*time.Second)
 		if clientErr != nil {
 			fmt.Fprintf(c.Output.Stdout, "  %-18s invalid proxy\n", target.Profile)
